@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include <cassert>
+#include <cstring>
 
 using namespace std;
 using namespace ramulator;
@@ -168,8 +169,15 @@ Core::Core(const Config& configs, int coreid,
     first_level_cache = caches[1].get();
   }
   if (no_core_caches) {
-    more_reqs = trace.get_filtered_request(
+    if(configs["trace_type"] == "CPU")
+      more_reqs = trace.get_filtered_request(
         bubble_cnt, req_addr, req_type);
+    else if (configs["trace_type"] == "DATADEP" ) {
+      cputrace = false;
+      more_reqs = trace.get_dependence_request(
+        bubble_cnt, req_addr, req_type);
+
+    }
     req_addr = memory.page_allocator(req_addr, id);
   } else {
     more_reqs = trace.get_unfiltered_request(
@@ -177,7 +185,7 @@ Core::Core(const Config& configs, int coreid,
     req_addr = memory.page_allocator(req_addr, id);
   }
 
-  
+
   // regStats
   record_cycs.name("record_cycs_core_" + to_string(id))
              .desc("Record cycle number for calculating weighted speedup. (Only valid when expected limit instruction number is non zero in config file.)")
@@ -263,8 +271,12 @@ void Core::tick()
     }
 
     if (no_core_caches) {
-      more_reqs = trace.get_filtered_request(
+      if(cputrace)
+        more_reqs = trace.get_filtered_request(
           bubble_cnt, req_addr, req_type);
+      else
+        more_reqs = trace.get_dependence_request(
+        bubble_cnt, req_addr, req_type);
       if (req_addr != -1) {
         req_addr = memory.page_allocator(req_addr, id);
       }
@@ -450,6 +462,75 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         write_addr = stoul(line.substr(pos), NULL, 0);
     }
     return true;
+}
+//for data dependency traces
+bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
+{
+    static bool has_write = false;
+    static int line_num = 0;
+    /*if (has_write){
+        bubble_cnt = 0;
+        req_addr = write_addr;
+        req_type = Request::Type::WRITE;
+        has_write = false;
+        return true;
+    }*/
+    string line;
+    while(true){
+      getline(file, line);
+      //printf("%s\n",line.c_str());
+      line_num ++;
+      if (file.eof() || line.size() == 0) {
+          file.clear();
+          file.seekg(0, file.beg);
+          line_num = 0;
+
+          if(expected_limit_insts == 0) {
+              has_write = false;
+              return false;
+          }
+          else { // starting over the input trace file
+              getline(file, line);
+              line_num++;
+          }
+      }
+      char *token = strtok(strdup(line.c_str()), " ");
+      //printf("token seq_no: %s\n",token);
+      int seq_number = stoi(token);
+      token = strtok(NULL," ");
+      //printf("token type: %s\n",token);
+      bool iscomp = false;
+      bool dependent = false;
+      if(std::strcmp(token,"READ") == 0) {
+        req_type = Request::Type::READ;
+      } else if(std::strcmp(token,"WRITE") == 0) {
+        req_type = Request::Type::WRITE;
+      } else if(std::strcmp(token,"COMP") == 0 ||
+          std::strcmp(token,"READ[C]") == 0    || //TODO: maybe handle these different
+          std::strcmp(token,"WRITE[C]") == 0   ){ //^
+        iscomp = true;
+      } else {
+        printf("Bad trace file. found: %s\n",token);
+        return false;
+      }
+      if(!iscomp) {
+        token = strtok(NULL," ");
+        //printf("token addr: %s\n",token);
+        req_addr = stoul(token,NULL, 0);
+      } else {
+        bubble_cnt++;
+      }
+      //dependencies
+      token = strtok(NULL," ");
+      //printf("token deps: %s\n",token);
+      if (token != NULL){
+        dependent = true;
+        //TODO: handle dependencies, maybe calculate delay?
+      }
+      if(!iscomp)  //need to count bubbles until a memory instruction.
+        return true;
+    }
+    return true; //not return true actually because you have some comp instructions left this is probably wrong.
 }
 
 bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)

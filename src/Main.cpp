@@ -171,6 +171,8 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
     run_cputrace(configs, memory, files);
   } else if (configs["trace_type"] == "DRAM") {
     run_dramtrace(configs, memory, files[0]);
+  } else if (configs["trace_type"] == "DATADEP") {
+    run_cputrace(configs, memory, files);
   }
 }
 
@@ -193,6 +195,8 @@ int main(int argc, const char *argv[])
       configs.add("trace_type", "CPU");
     } else if (strcmp(trace_type, "dram") == 0) {
       configs.add("trace_type", "DRAM");
+    } else if (strcmp(trace_type, "datadep") == 0) {
+      configs.add("trace_type", "DATADEP");
     } else {
       printf("invalid trace type: %s\n", trace_type);
       assert(false);
@@ -208,7 +212,7 @@ int main(int argc, const char *argv[])
       Stats::statlist.output(standard+".stats");
       stats_out = standard + string(".stats");
     }
-    
+
     // A separate file defines mapping for easy config.
     if (strcmp(argv[trace_start], "--mapping") == 0) {
       configs.add("mapping", argv[trace_start+1]);
@@ -216,7 +220,7 @@ int main(int argc, const char *argv[])
     } else {
       configs.add("mapping", "defaultmapping");
     }
-    
+
     std::vector<const char*> files(&argv[trace_start], &argv[argc]);
     configs.set_core_num(argc - trace_start);
 
