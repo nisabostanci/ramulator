@@ -23,12 +23,14 @@ public:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
-    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number);
+    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number,  long unsigned int& dep_addr);
     // trace file format 2:
     // [address(hex)] [R/W]
     bool get_dramtrace_request(long& req_addr, Request::Type& req_type);
 
     long expected_limit_insts = 0;
+    bool readlist[128] = {};
+    long unsigned int readlist_addr[128] = {};
 
 private:
     std::ifstream file;
@@ -108,6 +110,7 @@ private:
     long req_addr = -1;
     Request::Type req_type;
     int seq_number = -1;
+    long unsigned int dep_addr = 0;
     bool more_reqs;
     long last = 0;
 
