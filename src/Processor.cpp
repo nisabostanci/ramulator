@@ -175,7 +175,7 @@ Core::Core(const Config& configs, int coreid,
     else if (configs["trace_type"] == "DATADEP" ) {
       cputrace = false;
       more_reqs = trace.get_dependence_request(
-        bubble_cnt, req_addr, req_type);
+        bubble_cnt, req_addr, req_type, seq_number);
 
     }
     req_addr = memory.page_allocator(req_addr, id);
@@ -252,7 +252,7 @@ void Core::tick()
 
         Request req(req_addr, req_type, callback, id);
         if (!send(req)) return;
-
+        //printf("head: %d, seq_number: %d",window.get_head(),seq_number);
         window.insert(false, req_addr);
         cpu_inst++;
     }
@@ -276,7 +276,7 @@ void Core::tick()
           bubble_cnt, req_addr, req_type);
       else
         more_reqs = trace.get_dependence_request(
-        bubble_cnt, req_addr, req_type);
+        bubble_cnt, req_addr, req_type, seq_number);
       if (req_addr != -1) {
         req_addr = memory.page_allocator(req_addr, id);
       }
@@ -464,7 +464,7 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     return true;
 }
 //for data dependency traces
-bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
+bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type, int& seq_number)
 {
     static bool has_write = false;
     static int line_num = 0;
@@ -496,7 +496,7 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
       }
       char *token = strtok(strdup(line.c_str()), " ");
       //printf("token seq_no: %s\n",token);
-      int seq_number = stoi(token);
+      seq_number = stoi(token);
       token = strtok(NULL," ");
       //printf("token type: %s\n",token);
       bool iscomp = false;

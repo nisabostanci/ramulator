@@ -23,7 +23,7 @@ public:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
-    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
+    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number);
     // trace file format 2:
     // [address(hex)] [R/W]
     bool get_dramtrace_request(long& req_addr, Request::Type& req_type);
@@ -47,6 +47,7 @@ public:
     void insert(bool ready, long addr);
     long retire();
     void set_ready(long addr, int mask);
+    int get_head(){return head;};
 
 private:
     int load = 0;
@@ -101,10 +102,12 @@ public:
 private:
     Trace trace;
     Window window;
+    Window depwindow;
 
     long bubble_cnt;
     long req_addr = -1;
     Request::Type req_type;
+    int seq_number = -1;
     bool more_reqs;
     long last = 0;
 
