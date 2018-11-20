@@ -23,7 +23,7 @@ public:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
-    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number,  long unsigned int& dep_addr);
+    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number,  long& dep_addr);
     // trace file format 2:
     // [address(hex)] [R/W]
     bool get_dramtrace_request(long& req_addr, Request::Type& req_type);
@@ -49,6 +49,7 @@ public:
     void insert(bool ready, long addr);
     long retire();
     void set_ready(long addr, int mask);
+    bool get_ready(long addr);
     int get_head(){return head;};
 
 private:
@@ -72,6 +73,7 @@ public:
         function<bool(Request)> send_next, Cache* llc,
         std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory);
     void tick();
+    bool get_ready(long addr);
     void receive(Request& req);
     void reset_stats();
     double calc_ipc();
@@ -101,6 +103,8 @@ public:
     // This is set true iff expected number of instructions has been executed or all instructions are executed.
     bool reached_limit = false;
 
+    std::list<long> * pendingreads = new std::list<long>();
+
 private:
     Trace trace;
     Window window;
@@ -110,7 +114,7 @@ private:
     long req_addr = -1;
     Request::Type req_type;
     int seq_number = -1;
-    long unsigned int dep_addr = 0;
+    long dep_addr = -1;
     bool more_reqs;
     long last = 0;
 
