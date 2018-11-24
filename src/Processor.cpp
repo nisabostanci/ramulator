@@ -237,7 +237,6 @@ void Core::tick()
     while (bubble_cnt > 0) {
         if (inserted == window.ipc) return;
         if (window.is_full()) return;
-
         window.insert(true, -1);
         inserted++;
         bubble_cnt--;
@@ -249,9 +248,9 @@ void Core::tick()
           reached_limit = true;
         }
     }
-    printf("checking: %li ready: %d\n",dep_addr,get_ready(dep_addr));
+    //printf("checking: %li ready: %d\n",dep_addr,get_ready(dep_addr));
     if(dep_addr!=-1 && !get_ready(dep_addr)) {
-      printf("added bubble for: %li %d - %li\n",req_addr,req_type,dep_addr);
+      //printf("added bubble for: %li %d - %li\n",req_addr,req_type,dep_addr);
       bubble_cnt++;
       return;
     }
@@ -265,7 +264,7 @@ void Core::tick()
         if (!send(req)) return;
         //printf("head: %d, seq_number: %d",window.get_head(),seq_number);
         window.insert(false, req_addr);
-        printf("inserting: %li\n",req_addr);
+        //printf("inserting: %li\n",req_addr);
         pendingreads->push_back(req_addr);
         cpu_inst++;
     }
@@ -283,7 +282,7 @@ void Core::tick()
       reached_limit = true;
     }
 
-    printf("req: %d addr: %li bbl: %li seq_number: %d dep_addr: %li\n",req_type, req_addr, bubble_cnt, seq_number, dep_addr);
+    //printf("req: %d addr: %li bbl: %li seq_number: %d dep_addr: %li\n",req_type, req_addr, bubble_cnt, seq_number, dep_addr);
     if (no_core_caches) {
       if(cputrace)
         more_reqs = trace.get_filtered_request(
@@ -335,7 +334,7 @@ void Core::receive(Request& req)
       memory_access_cycles += (req.depart - max(last, req.arrive));
       last = req.depart;
     }
-    printf("removing %li\n",req.addr);
+    //printf("removing %li\n",req.addr);
     pendingreads->remove(req.addr);
 }
 
@@ -483,6 +482,7 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
     static bool has_write = false;
     static int line_num = 0;
     string line;
+    int dep_number = -1;
     while(true){
       getline(file, line);
       //printf("%s\n",line.c_str());
@@ -521,6 +521,8 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
           std::strcmp(token,"READ[C]") == 0    || //TODO: maybe handle these different
           std::strcmp(token,"WRITE[C]") == 0   ){ //^
         iscomp = true;
+        bubble_cnt++;
+        //printf("Bubble count: %li\n",bubble_cnt);
         if(std::strcmp(token,"COMP")!=0)
           token = strtok(NULL," ");
       } else {
@@ -533,16 +535,14 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
         req_addr = stoul(token,NULL, 0);
         if(readlist[seq_number]) {
           readlist_addr[seq_number]=req_addr;
-          printf("adding: seq: %d, addr: %li\n", seq_number, req_addr);
+          //printf("adding: seq: %d, addr: %li\n", seq_number, req_addr);
         }
-      } else {
-        bubble_cnt++;
       }
       //dependencies
       token = strtok(NULL," ");
       if (token!=NULL){
-        int dep_number=-1;
-        dep_addr = -1;
+        //int dep_number=-1;
+        //dep_addr = -1;
         dependent = true;
         token = strtok(NULL," ");
         while(token!=NULL) {
@@ -567,12 +567,15 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
           token = strtok(NULL," ");
         }
         dep_addr = (dep_number != -1) ? readlist_addr[dep_number] : -1;
-        if(dep_number!=-1)
-        printf("dep_number: %d, dep_addr: %li\n",dep_number, dep_addr);
-        //TODO: handle dependencies, maybe calculate delay?
+        //if(dep_number!=-1)
+        //printf("dep_number: %d, dep_addr: %li\n",dep_number, dep_addr);
       }
       if(!iscomp)  //need to count bubbles until a memory instruction.
+      {
+        dep_number = -1;
+        dep_addr = -1;
         return true;
+      }
     }
     return true; //not return true actually because you have some comp instructions left this is probably wrong.
 }
