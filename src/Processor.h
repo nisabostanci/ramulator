@@ -23,14 +23,14 @@ public:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
-    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number,  long& dep_addr);
+    bool get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type,int& seq_number,  long& dep_addr,std::list<long> * dep_list);
     // trace file format 2:
     // [address(hex)] [R/W]
     bool get_dramtrace_request(long& req_addr, Request::Type& req_type);
 
     long expected_limit_insts = 0;
     bool readlist[128] = {};
-    long unsigned int readlist_addr[128] = {};
+    long readlist_addr[128] = {};
 
 private:
     std::ifstream file;
@@ -43,10 +43,10 @@ public:
     int ipc = 4;
     int depth = 128;
 
-    Window() : ready_list(depth), addr_list(depth, -1) {}
+    Window() : ready_list(depth), addr_list(depth, -1), dependency_list(depth) {}
     bool is_full();
     bool is_empty();
-    void insert(bool ready, long addr);
+    void insert(bool ready, long addr,std::list<long>* deplist);
     long retire();
     void set_ready(long addr, int mask);
     bool get_ready(long addr);
@@ -58,6 +58,7 @@ private:
     int tail = 0;
     std::vector<bool> ready_list;
     std::vector<long> addr_list;
+    std::vector<std::list<long>*> dependency_list;
 };
 
 
@@ -115,6 +116,7 @@ private:
     Request::Type req_type;
     int seq_number = -1;
     long dep_addr = -1;
+    std::list<long> * dep_list = new std::list<long>();
     bool more_reqs;
     long last = 0;
 
