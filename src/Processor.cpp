@@ -517,14 +517,14 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
         readlist[seq_number] = true;
       } else if(std::strcmp(token,"WRITE") == 0) {
         req_type = Request::Type::WRITE;
-      } else if(std::strcmp(token,"COMP") == 0 ||
-          std::strcmp(token,"READ[C]") == 0    || //TODO: maybe handle these different
-          std::strcmp(token,"WRITE[C]") == 0   ){ //^
+      } else if(std::strcmp(token,"COMP") == 0){
         iscomp = true;
         bubble_cnt++;
         //printf("Bubble count: %li\n",bubble_cnt);
-        if(std::strcmp(token,"COMP")!=0)
-          token = strtok(NULL," ");
+      } else if(std::strcmp(token,"READ[C]") == 0    || //TODO: maybe handle these different
+                std::strcmp(token,"WRITE[C]") == 0 ) {
+        token = strtok(NULL," ");
+        iscomp = true;
       } else {
         printf("Bad trace file. found: %s\n",token);
         return false;
