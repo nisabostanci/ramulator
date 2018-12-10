@@ -237,10 +237,11 @@ void Core::tick()
     while (bubble_cnt > 0) {
         if (inserted == window.ipc) return;
         if (window.is_full()) return;
-        window.insert(true, -1, dep_list);
+        window.insert(true, -1, NULL);
         inserted++;
         bubble_cnt--;
         cpu_inst++;
+        //dep_list->clear();
         if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
           record_cycs = clk;
           record_insts = long(cpu_inst.value());
@@ -264,6 +265,7 @@ void Core::tick()
 
         Request req(req_addr, req_type, callback, id);
         if (!send(req)) return;
+        //printf("sent read req addr: %li\n",req.addr);
         //printf("head: %d, seq_number: %d",window.get_head(),seq_number);
         window.insert(false, req_addr,dep_list);
         dep_list->clear();
@@ -276,6 +278,7 @@ void Core::tick()
         assert(req_type == Request::Type::WRITE);
         Request req(req_addr, req_type, callback, id);
         if (!send(req)) return;
+        //printf("sent write req addr: %li\n",req.addr);
         dep_list->clear();
         cpu_inst++;
     }
@@ -333,6 +336,7 @@ long Core::get_insts() {
 
 void Core::receive(Request& req)
 {
+    //printf("received callback. addr: %li\n",req.addr);
     window.set_ready(req.addr, ~(l1_blocksz - 1l));
     if (req.arrive != -1 && req.depart > last) {
       memory_access_cycles += (req.depart - max(last, req.arrive));
@@ -365,19 +369,41 @@ void Window::insert(bool ready, long addr,std::list<long> * deplist)
 
     ready_list.at(head) = ready;
     addr_list.at(head) = addr;
-    printf("dependency list: ");
-    for(std::list<long>::iterator it = deplist->begin();it!=deplist->end();++it) {
-      printf("%li ",*it);
+
+    if(deplist!=NULL){
+      //printf("req_addr: %li, adding[%d] dependency list: ",addr,head);
+      dependency_list.at(head) = new std::list<long>(); //TODO: change this
+      for(std::list<long>::iterator it = deplist->begin();it!=deplist->end();++it) {
+        /*
+        bool present = false;
+        for(std::vector<long>::iterator it_v = addr_list.begin();it_v!=addr_list.end();++it_v) {
+          if(*it == *it_v) {
+            present = true;
+            break;
+          }
+        }
+        if(present){
+          dependency_list.at(head)->push_back(*it);
+        }
+        //else its already ready
+        */
+        for(int i =0;i<addr_list.size();i++){
+          if(addr_list.at(i) == *it && !ready_list.at(i)) {
+            //printf("%li ",*it);
+            dependency_list.at(head)->push_back(*it);
+            break;
+          }
+        }
+
+      }
+      //printf("\n");
+      //printf("load: %d\n",load);
     }
-    printf("\n");
-    dependency_list.at(head) = deplist;
-    for(std::list<long>::iterator it = deplist->begin();it!=deplist->end();++it) {
-      dependency_list.at(head)->push_back(*it);
-    }
+    else dependency_list.at(head) = NULL;
+
 
     head = (head + 1) % depth;
     load++;
-    printf("load: %d\n",load);
 }
 
 
@@ -389,14 +415,18 @@ long Window::retire()
 
     int retired = 0;
     while (load > 0 && retired < ipc) {
-      printf("checking: ready: %d - deplist: %d\n",!ready_list.at(tail),!dependency_list.at(tail)->empty());
-      printf("dependency list: ");
-      for(std::list<long>::iterator it = dependency_list.at(tail)->begin();it!=dependency_list.at(tail)->end();++it) {
-        printf("%li ",*it);
+      if (ready_list.at(tail) &&  dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())
+      {
+        printf("stalled because of deplist tail: %d\n",tail);
+        printf("dependency list: ");
+        for(std::list<long>::iterator it = dependency_list.at(tail)->begin();it!=dependency_list.at(tail)->end();++it) {
+          printf("%li ",*it);
+        }
+        printf("\n");
+
       }
-      printf("\n");
-        if (!ready_list.at(tail) || !dependency_list.at(tail)->empty())
-            break;
+      if (!ready_list.at(tail) || (dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty()))
+        break;
 
         tail = (tail + 1) % depth;
         load--;
@@ -409,26 +439,25 @@ long Window::retire()
 
 void Window::set_ready(long addr, int mask)
 {
-    printf("ready: %li- load: %d\n",addr,load);
     if (load == 0) return;
-    printf("here.\n");
-
     for (int i = 0; i < load; i++) {
         int index = (tail + i) % depth;
         if ((addr_list.at(index) & mask) != (addr & mask))
             continue;
         ready_list.at(index) = true;
+        //printf("set ready: ind: %d\n",index);
     }
     for(int i =0;i<load;i++) {
       int index = (tail + i) % depth;
-      printf("here @ index: %d\n",index);
+      //printf("here @ index: %d\n",index);
       if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) continue;
       for(std::list<long>::iterator it = dependency_list.at(index)->begin(); it!= dependency_list.at(index)->end();++it) {
-        printf("dep list @ index %d: %li\n",index,*it);
-        if(*it == addr) {
-          dependency_list.at(index)->erase(it);
-          printf("deleted from : index @ %d",index);
+        //printf("loop: %li addr: %li\n",*it,addr);
+        if(((*it) & mask) == (addr & mask)) {
+          it = dependency_list.at(index)->erase(it);
+          //printf("deleted from index: %d\n",index);
         }
+        if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) break;
       }
     }
 }
@@ -568,7 +597,7 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
         //printf("token addr: %s\n",token);
         req_addr = stoul(token,NULL, 0);
         if(readlist[seq_number]) {
-          printf("readlist_addr[%d]=%li\n",seq_number,req_addr);
+          //printf("readlist_addr[%d]=%li\n",seq_number,req_addr);
           readlist_addr[seq_number]=req_addr;
           //printf("adding: seq: %d, addr: %li\n", seq_number, req_addr);
         }
@@ -587,7 +616,7 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
             token = strtok(NULL, " ");
             continue;
           }
-          printf("seq: %d deplist added: %li\n",seq_number,readlist_addr[current]);
+          //printf("seq: %d deplist added: readlist_addr[%d] %li\n",seq_number,current,readlist_addr[current]);
           dep_list->push_back(readlist_addr[current]);
           /*if(dep_number==-1)
             dep_number = current;
