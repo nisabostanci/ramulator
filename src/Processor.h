@@ -109,7 +109,6 @@ public:
 private:
     Trace trace;
     Window window;
-    Window depwindow;
 
     long bubble_cnt;
     long req_addr = -1;
