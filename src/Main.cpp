@@ -3,6 +3,7 @@
 #include "Controller.h"
 #include "SpeedyController.h"
 #include "Memory.h"
+#include "HybridMemory.h"
 #include "DRAM.h"
 #include "Statistics.h"
 #include <cstdio>
@@ -36,6 +37,50 @@ bool ramulator::warmup_complete = false;
 
 template<typename T>
 void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const char* tracename) {
+
+    /* initialize DRAM trace */
+    Trace trace(tracename);
+
+    /* run simulation */
+    bool stall = false, end = false;
+    int reads = 0, writes = 0, clks = 0;
+    long addr = 0;
+    Request::Type type = Request::Type::READ;
+    map<int, int> latencies;
+    auto read_complete = [&latencies](Request& r){latencies[r.depart - r.arrive]++;};
+
+    Request req(addr, type, read_complete);
+
+    while (!end || memory.pending_requests()){
+        if (!end && !stall){
+            end = !trace.get_dramtrace_request(addr, type);
+        }
+
+        if (!end){
+            req.addr = addr;
+            req.type = type;
+            stall = !memory.send(req);
+            if (!stall){
+                if (type == Request::Type::READ) reads++;
+                else if (type == Request::Type::WRITE) writes++;
+            }
+        }
+        else {
+            memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
+                                                    // write queue are drained
+        }
+
+        memory.tick();
+        clks ++;
+        Stats::curTick++; // memory clock, global, for Statistics
+    }
+    // This a workaround for statistics set only initially lost in the end
+    memory.finish();
+    Stats::statlist.printall();
+
+}
+template<typename T, typename T2>
+void run_dramtrace(const Config& configs, HybridMemory<T,T2, Controller>& memory, const char* tracename) {
 
     /* initialize DRAM trace */
     Trace trace(tracename);
@@ -149,7 +194,76 @@ void run_cputrace(const Config& configs, Memory<T, Controller>& memory, const st
     memory.finish();
     Stats::statlist.printall();
 }
+template <typename T, typename T2>
+void run_cputrace(const Config& configs, HybridMemory<T,T2, Controller>& memory, const std::vector<const char *>& files)
+{
+    int cpu_tick = configs.get_cpu_tick();
+    int mem_tick = configs.get_mem_tick();
+    auto send = bind(&HybridMemory<T,T2, Controller>::send, &memory, placeholders::_1);
+    Processor proc(configs, files, send, memory);
 
+    long warmup_insts = configs.get_warmup_insts();
+    bool is_warming_up = (warmup_insts != 0);
+
+    for(long i = 0; is_warming_up; i++){
+        proc.tick();
+        Stats::curTick++;
+        if (i % cpu_tick == (cpu_tick - 1))
+            for (int j = 0; j < mem_tick; j++)
+                memory.tick();
+
+        is_warming_up = false;
+        for(int c = 0; c < proc.cores.size(); c++){
+            if(proc.cores[c]->get_insts() < warmup_insts)
+                is_warming_up = true;
+        }
+
+        if (is_warming_up && proc.has_reached_limit()) {
+            printf("WARNING: The end of the input trace file was reached during warmup. "
+                    "Consider changing warmup_insts in the config file. \n");
+            break;
+        }
+
+    }
+
+    warmup_complete = true;
+    printf("Warmup complete! Resetting stats...\n");
+    Stats::reset_stats();
+    proc.reset_stats();
+    assert(proc.get_insts() == 0);
+
+    printf("Starting the simulation...\n");
+
+    int tick_mult = cpu_tick * mem_tick;
+    for (long i = 0; ; i++) {
+        if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
+                                                 // the memory controller should be ticked mem_tick times
+            proc.tick();
+            Stats::curTick++; // processor clock, global, for Statistics
+
+            if (configs.calc_weighted_speedup()) {
+                if (proc.has_reached_limit()) {
+                    break;
+                }
+            } else {
+                if (configs.is_early_exit()) {
+                    if (proc.finished())
+                    break;
+                } else {
+                if (proc.finished() && (memory.pending_requests() == 0))
+                    break;
+                }
+            }
+        }
+
+        if (((i % tick_mult) % cpu_tick) == 0) // TODO_hasan: Better if the processor ticks the memory controller
+            memory.tick();
+
+    }
+    // This a workaround for statistics set only initially lost in the end
+    memory.finish();
+    Stats::statlist.printall();
+}
 template<typename T>
 void start_run(const Config& configs, T* spec, const vector<const char*>& files) {
   // initiate controller and memory
@@ -174,6 +288,45 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
     run_dramtrace(configs, memory, files[0]);
   }
 }
+template<typename T,typename T2>
+void start_run(const Config& configs, T* spec, T2* nvm_spec, const vector<const char*>& files) {
+  // initiate controller and memory
+  int C = configs.get_channels(), R = configs.get_ranks();
+  // Check and Set channel, rank number
+  spec->set_channel_number(C);
+  spec->set_rank_number(R);
+  std::vector<Controller<T>*> dram_ctrls;
+  for (int c = 0 ; c < C ; c++) {
+    DRAM<T>* channel = new DRAM<T>(spec, T::Level::Channel);
+    channel->id = c;
+    channel->regStats("");
+    Controller<T>* ctrl = new Controller<T>(configs, channel);
+    dram_ctrls.push_back(ctrl);
+  }
+
+  // initiate controller and memory
+  C = configs.get_channels();
+  R = configs.get_ranks();
+  // Check and Set channel, rank number
+  nvm_spec->set_channel_number(C);
+  nvm_spec->set_rank_number(R);
+  std::vector<Controller<T2>*> nvm_ctrls;
+  for (int c = 0 ; c < C ; c++) {
+    DRAM<T2>* channel = new DRAM<T2>(nvm_spec, T2::Level::Channel);
+    channel->id = c;
+    channel->regStats("");
+    Controller<T2>* ctrl = new Controller<T2>(configs, channel);
+    nvm_ctrls.push_back(ctrl);
+  }
+  HybridMemory<T,T2, Controller> memory(configs, dram_ctrls, nvm_ctrls);
+
+  assert(files.size() != 0);
+  if (configs["trace_type"] == "CPU") {
+    run_cputrace(configs, memory, files);
+  } else if (configs["trace_type"] == "DRAM") {
+    run_dramtrace(configs, memory, files[0]);
+  }
+}
 
 int main(int argc, const char *argv[])
 {
@@ -186,6 +339,7 @@ int main(int argc, const char *argv[])
     Config configs(argv[1]);
 
     const std::string& standard = configs["standard"];
+    bool hybrid = false;
     assert(standard != "" || "DRAM standard should be specified.");
 
     const char *trace_type = strstr(argv[2], "=");
@@ -218,10 +372,27 @@ int main(int argc, const char *argv[])
       configs.add("mapping", "defaultmapping");
     }
 
+    //Hybrid memory option
+    if (strcmp(argv[trace_start], "--hybrid") == 0) {
+      hybrid = true;
+      configs.add("hybrid", "on");
+      configs.add("dramtype", argv[trace_start+1]);
+      configs.add("nvmtype", argv[trace_start+2]);
+      trace_start += 3;
+    } else {
+      configs.add("hybrid", "off");
+    }
+
     std::vector<const char*> files(&argv[trace_start], &argv[argc]);
     configs.set_core_num(argc - trace_start);
 
-    if (standard == "DDR3") {
+    if ( hybrid ) {
+      //just for the test:
+      DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);
+      PCM* pcm = new PCM(configs["org"], configs["speed"]);
+      start_run(configs,ddr3, pcm, files);
+    }
+    else if (standard == "DDR3") {
       DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);
       start_run(configs, ddr3, files);
     } else if (standard == "DDR4") {
