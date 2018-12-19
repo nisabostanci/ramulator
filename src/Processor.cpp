@@ -215,13 +215,7 @@ double Core::calc_ipc()
     printf("[%d]retired: %ld, clk, %ld\n", id, retired, clk);
     return (double) retired / clk;
 }
-bool Core::get_ready(long addr)
-{
-  for(std::list<long>::iterator it = pendingreads->begin(); it!=pendingreads->end();++it) {
-    if((*it)==addr) return false;
-  }
-  return true;
-}
+
 void Core::tick()
 {
     clk++;
@@ -249,14 +243,19 @@ void Core::tick()
           reached_limit = true;
         }
     }
-    /*
+    if(clk%10000000000==0)
+    printf("clk: %li, trying to send: req->addr: %li %d\n",clk,req_addr, req_type);
     //printf("checking: %li ready: %d\n",dep_addr,get_ready(dep_addr));
-    if(dep_addr!=-1 && !get_ready(dep_addr)) {
-      //printf("added bubble for: %li %d - %li\n",req_addr,req_type,dep_addr);
-      bubble_cnt++;
-      return;
+    if(!dep_list->empty() || dep_list!=NULL) {
+      for(std::list<long>::iterator it = dep_list->begin();it!=dep_list->end();it++) {
+        if((dep_list!=NULL || !dep_list->empty()) && !window.get_ready(*it)) {
+          //window.insert(true, -1, NULL);
+          //printf("added bubble for: %li %d - %li\n",req_addr,req_type,*it);
+          return;
+        }
+      }
     }
-    */
+
 
     if (req_type == Request::Type::READ) {
         // read request
@@ -361,7 +360,16 @@ bool Window::is_empty()
 {
     return load == 0;
 }
-
+bool Window::get_ready(long addr){
+  for (int i = 0; i < load; i++) {
+      int index = (tail + i) % depth;
+      if (addr_list.at(index) != addr)
+          continue;
+      //printf("found: %li, notready: %d\n",addr,!ready_list.at(index));
+      if(!ready_list.at(index)) return false;
+  }
+  return true;
+}
 
 void Window::insert(bool ready, long addr,std::list<long> * deplist)
 {
@@ -415,7 +423,7 @@ long Window::retire()
 
     int retired = 0;
     while (load > 0 && retired < ipc) {
-      if (ready_list.at(tail) &&  dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())
+    /*  if (ready_list.at(tail) &&  dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())
       {
         printf("stalled because of deplist tail: %d\n",tail);
         printf("dependency list: ");
@@ -423,11 +431,11 @@ long Window::retire()
           printf("%li ",*it);
         }
         printf("\n");
-
-      }
-      if (!ready_list.at(tail) || (dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty()))
+      }*/
+      if (!ready_list.at(tail) /*|| (dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())*/)
         break;
 
+        //printf("retired: addr: %li\n",addr_list.at(tail));
         tail = (tail + 1) % depth;
         load--;
         retired++;
@@ -445,21 +453,22 @@ void Window::set_ready(long addr, int mask)
         if ((addr_list.at(index) & mask) != (addr & mask))
             continue;
         ready_list.at(index) = true;
-        //printf("set ready: ind: %d\n",index);
+        //printf("set ready: ind: %ld\n",addr);
     }
+    /*
     for(int i =0;i<load;i++) {
       int index = (tail + i) % depth;
       //printf("here @ index: %d\n",index);
       if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) continue;
-      for(std::list<long>::iterator it = dependency_list.at(index)->begin(); it!= dependency_list.at(index)->end();++it) {
-        //printf("loop: %li addr: %li\n",*it,addr);
+      for(std::list<long>::iterator it = dependency_list.at(index)->begin(); it!= dependency_list.at(index)->end();it++) {
+        //printf("loop ind:%d, addrit: %li addr: %li\n",index,*it,addr);
         if(((*it) & mask) == (addr & mask)) {
           it = dependency_list.at(index)->erase(it);
-          //printf("deleted from index: %d\n",index);
+          it--;
         }
         if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) break;
       }
-    }
+    }*/
 }
 
 Trace::Trace(const char* trace_fname) : file(trace_fname), trace_name(trace_fname)
@@ -529,6 +538,8 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     bubble_cnt = std::stoul(line, &pos, 10);
 
     pos = line.find_first_not_of(' ', pos+1);
+    if(pos == string::npos)
+      printf("%s\n",line.c_str());
     req_addr = stoul(line.substr(pos), &end, 0);
     req_type = Request::Type::READ;
 
@@ -618,23 +629,9 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
           }
           //printf("seq: %d deplist added: readlist_addr[%d] %li\n",seq_number,current,readlist_addr[current]);
           dep_list->push_back(readlist_addr[current]);
-          /*if(dep_number==-1)
-            dep_number = current;
-          else { //compare the old and the new dependencies choose the closer one
-            int n_dif = seq_number - current;
-            int dif = seq_number - dep_number;
-            if(dif<0 && n_dif<0)
-              dep_number = (dif>n_dif) ? current : dep_number;
-            else if(dif<0 && n_dif>0)
-              dep_number = current;
-            else if(dif>0 && n_dif>0)
-              dep_number = (dif>n_dif) ? current : dep_number;
-          }*/
           token = strtok(NULL," ");
         }
         dep_addr = (dep_number != -1) ? readlist_addr[dep_number] : -1;
-        //if(dep_number!=-1)
-        //printf("dep_number: %d, dep_addr: %li\n",dep_number, dep_addr);
       }
       if(!iscomp)  //need to count bubbles until a memory instruction.
       {
