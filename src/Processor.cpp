@@ -175,7 +175,7 @@ Core::Core(const Config& configs, int coreid,
     else if (configs["trace_type"] == "DATADEP" ) {
       cputrace = false;
       more_reqs = trace.get_dependence_request(
-        bubble_cnt, req_addr, req_type, seq_number, dep_addr,dep_list);
+        bubble_cnt, req_addr, req_type, seq_number,dep_list);
 
     }
     req_addr = memory.page_allocator(req_addr, id);
@@ -231,7 +231,7 @@ void Core::tick()
     while (bubble_cnt > 0) {
         if (inserted == window.ipc) return;
         if (window.is_full()) return;
-        window.insert(true, -1, NULL);
+        window.insert(true, -1);
         inserted++;
         bubble_cnt--;
         cpu_inst++;
@@ -266,7 +266,7 @@ void Core::tick()
         if (!send(req)) return;
         //printf("sent read req addr: %li\n",req.addr);
         //printf("head: %d, seq_number: %d",window.get_head(),seq_number);
-        window.insert(false, req_addr,dep_list);
+        window.insert(false, req_addr);
         dep_list->clear();
         //printf("inserting: %li\n",req_addr);
         pendingreads->push_back(req_addr);
@@ -295,7 +295,7 @@ void Core::tick()
           bubble_cnt, req_addr, req_type);
       else
         more_reqs = trace.get_dependence_request(
-        bubble_cnt, req_addr, req_type, seq_number, dep_addr,dep_list);
+        bubble_cnt, req_addr, req_type, seq_number,dep_list);
       if (req_addr != -1) {
         req_addr = memory.page_allocator(req_addr, id);
       }
@@ -371,44 +371,12 @@ bool Window::get_ready(long addr){
   return true;
 }
 
-void Window::insert(bool ready, long addr,std::list<long> * deplist)
+void Window::insert(bool ready, long addr)
 {
     assert(load <= depth);
 
     ready_list.at(head) = ready;
     addr_list.at(head) = addr;
-
-    if(deplist!=NULL){
-      //printf("req_addr: %li, adding[%d] dependency list: ",addr,head);
-      dependency_list.at(head) = new std::list<long>(); //TODO: change this
-      for(std::list<long>::iterator it = deplist->begin();it!=deplist->end();++it) {
-        /*
-        bool present = false;
-        for(std::vector<long>::iterator it_v = addr_list.begin();it_v!=addr_list.end();++it_v) {
-          if(*it == *it_v) {
-            present = true;
-            break;
-          }
-        }
-        if(present){
-          dependency_list.at(head)->push_back(*it);
-        }
-        //else its already ready
-        */
-        for(int i =0;i<addr_list.size();i++){
-          if(addr_list.at(i) == *it && !ready_list.at(i)) {
-            //printf("%li ",*it);
-            dependency_list.at(head)->push_back(*it);
-            break;
-          }
-        }
-
-      }
-      //printf("\n");
-      //printf("load: %d\n",load);
-    }
-    else dependency_list.at(head) = NULL;
-
 
     head = (head + 1) % depth;
     load++;
@@ -423,19 +391,9 @@ long Window::retire()
 
     int retired = 0;
     while (load > 0 && retired < ipc) {
-    /*  if (ready_list.at(tail) &&  dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())
-      {
-        printf("stalled because of deplist tail: %d\n",tail);
-        printf("dependency list: ");
-        for(std::list<long>::iterator it = dependency_list.at(tail)->begin();it!=dependency_list.at(tail)->end();++it) {
-          printf("%li ",*it);
-        }
-        printf("\n");
-      }*/
-      if (!ready_list.at(tail) /*|| (dependency_list.at(tail)!=NULL && !dependency_list.at(tail)->empty())*/)
+      if (!ready_list.at(tail))
         break;
 
-        //printf("retired: addr: %li\n",addr_list.at(tail));
         tail = (tail + 1) % depth;
         load--;
         retired++;
@@ -453,22 +411,7 @@ void Window::set_ready(long addr, int mask)
         if ((addr_list.at(index) & mask) != (addr & mask))
             continue;
         ready_list.at(index) = true;
-        //printf("set ready: ind: %ld\n",addr);
     }
-    /*
-    for(int i =0;i<load;i++) {
-      int index = (tail + i) % depth;
-      //printf("here @ index: %d\n",index);
-      if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) continue;
-      for(std::list<long>::iterator it = dependency_list.at(index)->begin(); it!= dependency_list.at(index)->end();it++) {
-        //printf("loop ind:%d, addrit: %li addr: %li\n",index,*it,addr);
-        if(((*it) & mask) == (addr & mask)) {
-          it = dependency_list.at(index)->erase(it);
-          it--;
-        }
-        if(dependency_list.at(index)==NULL || dependency_list.at(index)->empty()) break;
-      }
-    }*/
 }
 
 Trace::Trace(const char* trace_fname) : file(trace_fname), trace_name(trace_fname)
@@ -551,12 +494,11 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     return true;
 }
 //for data dependency traces
-bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type, int& seq_number, long& dep_addr,std::list<long> * dep_list)
+bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Type& req_type, int& seq_number,std::list<long> * dep_list)
 {
     static bool has_write = false;
     static int line_num = 0;
     string line;
-    int dep_number = -1;
     while(true){
       getline(file, line);
       //printf("%s\n",line.c_str());
@@ -616,27 +558,20 @@ bool Trace::get_dependence_request(long& bubble_cnt, long& req_addr, Request::Ty
       //dependencies
       token = strtok(NULL," ");
       if (token!=NULL){
-        //int dep_number=-1;
-        //dep_addr = -1;
         dependent = true;
         token = strtok(NULL," ");
         while(token!=NULL) {
-          //printf("token deps: %s\n",token);
           int current = atoi(token);
           if(!readlist[current])  {
             token = strtok(NULL, " ");
             continue;
           }
-          //printf("seq: %d deplist added: readlist_addr[%d] %li\n",seq_number,current,readlist_addr[current]);
           dep_list->push_back(readlist_addr[current]);
           token = strtok(NULL," ");
         }
-        dep_addr = (dep_number != -1) ? readlist_addr[dep_number] : -1;
       }
       if(!iscomp)  //need to count bubbles until a memory instruction.
       {
-        //dep_number = -1;
-        //dep_addr = -1;
         return true;
       }
     }
