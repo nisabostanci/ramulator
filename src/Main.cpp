@@ -388,6 +388,7 @@ int main(int argc, const char *argv[])
 
     if ( hybrid ) {
       //just for the test:
+      //TODO_nisa: use the configs
       DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);
       PCM* pcm = new PCM(configs["org"], configs["speed"]);
       start_run(configs,ddr3, pcm, files);

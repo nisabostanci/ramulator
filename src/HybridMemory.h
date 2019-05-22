@@ -51,6 +51,9 @@ protected:
   ScalarStat in_queue_read_req_num_avg;
   ScalarStat in_queue_write_req_num_avg;
 
+  ScalarStat migrate_to_nvm;
+  ScalarStat found_in_nvm;
+
 #ifndef INTEGRATED_WITH_GEM5
   VectorStat record_read_requests;
   VectorStat record_write_requests;
@@ -83,6 +86,11 @@ public:
     map<pair<int, long>, long> page_translation;
     map<pair<int, long>, bool> is_in_dram;
 
+    vector<int> nvm_free_physical_pages;
+    long nvm_physical_pages_remaining;
+    map<pair<int, long>, long> nvm_page_translation;
+    map<pair<int, long>, bool> is_in_nvm;
+
     vector<Controller<T>*> dram_ctrls;
     vector<Controller<T2>*> nvm_ctrls;
     T * spec;
@@ -103,6 +111,7 @@ public:
           addr_bits(int(T::Level::MAX)),
           addr_bits_nvm(int(T2::Level::MAX))
     {
+        printf("hybrid memory print\n");
         // make sure 2^N channels/ranks
         // TODO support channel number that is not powers of 2
         int *sz = spec->org_entry.count;
@@ -154,8 +163,10 @@ public:
         if (translation != Translation::None) {
           // construct a list of available pages
           // TODO: this should not assume a 4KB page!
-          free_physical_pages_remaining = max_address >> 12;
+          free_physical_pages_remaining = 512; /*max_address >> 12;*/
+          nvm_physical_pages_remaining = max_address_nvm >> 12;
 
+          nvm_free_physical_pages.resize(nvm_physical_pages_remaining, -1);
           free_physical_pages.resize(free_physical_pages_remaining, -1);
         }
 
@@ -243,6 +254,16 @@ public:
             .name("in_queue_write_req_num_avg")
             .desc("Average of write queue length per memory cycle")
             .precision(6)
+            ;
+        migrate_to_nvm
+            .name("migrate_to_nvm")
+            .desc("number of times a page is migrated to NVM")
+            .precision(0)
+            ;
+        found_in_nvm
+            .name("found_in_nvm")
+            .desc("number of times a page is found in NVM")
+            .precision(0)
             ;
 #ifndef INTEGRATED_WITH_GEM5
         record_read_requests
@@ -534,7 +555,88 @@ public:
       in_queue_read_req_num_avg = in_queue_read_req_num_sum.value() / dram_cycles;
       in_queue_write_req_num_avg = in_queue_write_req_num_sum.value() / dram_cycles;
     }
+    void allocate_a_page(std::pair<int, long> target) {
+      int coreid = target.first;
+      long addr = target.second;
+      if (!free_physical_pages_remaining) {
+        physical_page_replacement++;
+        long phys_page_to_read = lrand() % free_physical_pages.size();
+        assert(free_physical_pages[phys_page_to_read] != -1);
+        //long replaced_coreid = page_translation[target];
+        auto it = page_translation.begin();
+        while(it != page_translation.end())
+        {
+          if(it->second == phys_page_to_read && is_in_dram.find(it->first)->second)
+          {
+            auto old_target = it->first;
+            //printf("MIGRATED: %d,%ld, %ld\n", old_target.first, old_target.second, it->second);
+            is_in_dram[old_target] = false;
+            migrate_to_nvm++;
+            is_in_nvm[old_target] = true;
+            allocate_a_page_nvm(old_target);
+          }
+          it++;
+        }
+        page_translation[target] = phys_page_to_read;
+        is_in_dram[target] = true;
+      } else {
+          // assign a new page
+          long phys_page_to_read = lrand() % free_physical_pages.size();
+          // if the randomly-selected page was already assigned
+          if(free_physical_pages[phys_page_to_read] != -1) {
+              long starting_page_of_search = phys_page_to_read;
 
+              do {
+                  // iterate through the list until we find a free page
+                  // TODO: does this introduce serious non-randomness?
+                  ++phys_page_to_read;
+                  phys_page_to_read %= free_physical_pages.size();
+              }
+              while((phys_page_to_read != starting_page_of_search) && free_physical_pages[phys_page_to_read] != -1);
+          }
+
+          assert(free_physical_pages[phys_page_to_read] == -1);
+
+          page_translation[target] = phys_page_to_read;
+          is_in_dram[target] = true;
+          is_in_nvm[target] = false;
+          free_physical_pages[phys_page_to_read] = coreid;
+          --free_physical_pages_remaining;
+      }
+    }
+    void allocate_a_page_nvm(std::pair<int, long> target) {
+      int coreid = target.first;
+      if(nvm_page_translation.find(target) == nvm_page_translation.end()) {
+        //page doesn't exist, assign a new page
+        if(!nvm_physical_pages_remaining) {
+          long phys_page_to_read = lrand() % nvm_free_physical_pages.size();
+          assert(nvm_free_physical_pages[phys_page_to_read] != -1);
+          //long replaced_coreid = page_translation[target];
+          nvm_page_translation[target] = phys_page_to_read;
+        } else {
+            // assign a new page
+            long phys_page_to_read = lrand() % nvm_free_physical_pages.size();
+            // if the randomly-selected page was already assigned
+            if(nvm_free_physical_pages[phys_page_to_read] != -1) {
+                long starting_page_of_search = phys_page_to_read;
+
+                do {
+                    // iterate through the list until we find a free page
+                    // TODO: does this introduce serious non-randomness?
+                    ++phys_page_to_read;
+                    phys_page_to_read %= nvm_free_physical_pages.size();
+                }
+                while((phys_page_to_read != starting_page_of_search) && nvm_free_physical_pages[phys_page_to_read] != -1);
+            }
+
+            assert(nvm_free_physical_pages[phys_page_to_read] == -1);
+
+            nvm_page_translation[target] = phys_page_to_read;
+            nvm_free_physical_pages[phys_page_to_read] = coreid;
+            --nvm_physical_pages_remaining;
+          }
+      }
+    }
     long page_allocator(long addr, int coreid) {
         long virtual_page_number = addr >> 12;
 
@@ -550,40 +652,15 @@ public:
 
                     // if physical page doesn't remain, replace a previous assigned
                     // physical page.
-                    if (!free_physical_pages_remaining) {
-                      printf("page doesnt exists. and no page left.\n");
-                      physical_page_replacement++;
-                      long phys_page_to_read = lrand() % free_physical_pages.size();
-                      assert(free_physical_pages[phys_page_to_read] != -1);
-                      page_translation[target] = phys_page_to_read;
-                      //todo_nisa: this is the place to send replaced page to NVM.
-                    } else {
-                        // assign a new page
-                        long phys_page_to_read = lrand() % free_physical_pages.size();
-                        // if the randomly-selected page was already assigned
-                        if(free_physical_pages[phys_page_to_read] != -1) {
-                            long starting_page_of_search = phys_page_to_read;
-
-                            do {
-                                // iterate through the list until we find a free page
-                                // TODO: does this introduce serious non-randomness?
-                                ++phys_page_to_read;
-                                phys_page_to_read %= free_physical_pages.size();
-                            }
-                            while((phys_page_to_read != starting_page_of_search) && free_physical_pages[phys_page_to_read] != -1);
-                        }
-
-                        assert(free_physical_pages[phys_page_to_read] == -1);
-
-                        page_translation[target] = phys_page_to_read;
-                        is_in_dram[target] = true;
-                        free_physical_pages[phys_page_to_read] = coreid;
-                        --free_physical_pages_remaining;
-                    }
+                    allocate_a_page(target);
                 }
-                else if(is_in_dram.find(target) == is_in_dram.end()) {
+                else if((is_in_dram.find(target) == is_in_dram.end() || !is_in_dram.find(target)->second) &&
+                        (is_in_nvm.find(target) != is_in_nvm.end() && is_in_nvm.find(target)->second)) {
                   //page exists but its in nvm
-                  //todo_nisa: copy page to dram
+                  found_in_nvm++;
+                  page_translation.erase(target);
+                  allocate_a_page(target);
+                  is_in_nvm[target] = false;
                 }
                 // SAUGATA TODO: page size should not always be fixed to 4KB
                 return (page_translation[target] << 12) | (addr & ((1 << 12) - 1));
