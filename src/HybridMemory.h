@@ -111,7 +111,7 @@ public:
           addr_bits(int(T::Level::MAX)),
           addr_bits_nvm(int(T2::Level::MAX))
     {
-        printf("hybrid memory print\n");
+        // printf("hybrid memory print\n");
         // make sure 2^N channels/ranks
         // TODO support channel number that is not powers of 2
         int *sz = spec->org_entry.count;
@@ -163,7 +163,7 @@ public:
         if (translation != Translation::None) {
           // construct a list of available pages
           // TODO: this should not assume a 4KB page!
-          free_physical_pages_remaining = 512; /*max_address >> 12;*/
+          free_physical_pages_remaining = max_address >> 12;
           nvm_physical_pages_remaining = max_address_nvm >> 12;
 
           nvm_free_physical_pages.resize(nvm_physical_pages_remaining, -1);
@@ -558,6 +558,7 @@ public:
     void allocate_a_page(std::pair<int, long> target) {
       int coreid = target.first;
       long addr = target.second;
+      // printf("free:%lu\n",free_physical_pages_remaining);
       if (!free_physical_pages_remaining) {
         physical_page_replacement++;
         long phys_page_to_read = lrand() % free_physical_pages.size();
