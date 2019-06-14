@@ -5,9 +5,11 @@
 #include <cstdio>
 #include <deque>
 #include <fstream>
+#include <iostream>
 #include <list>
 #include <string>
 #include <vector>
+#include <math.h>
 
 #include "Config.h"
 #include "DRAM.h"
@@ -56,6 +58,8 @@ protected:
     ScalarStat write_req_queue_length_avg;
     ScalarStat write_req_queue_length_sum;
 
+    ScalarStat randomReadsIssued;
+
 #ifndef INTEGRATED_WITH_GEM5
     VectorStat record_read_hits;
     VectorStat record_read_misses;
@@ -83,12 +87,16 @@ public:
 
     Queue readq;  // queue for read requests
     Queue writeq;  // queue for write requests
-    Queue actq; // read and write requests for which activate was issued are moved to 
+    Queue actq; // read and write requests for which activate was issued are moved to
                    // actq, which has higher priority than readq and writeq.
                    // This is an optimization
                    // for avoiding useless activations (i.e., PRECHARGE
                    // after ACTIVATE w/o READ of WRITE command)
     Queue otherq;  // queue for all "other" requests (e.g., refresh)
+    ofstream readfp;
+    //double readOc=1, writeOc=1, actOc=1, otherOc=1, occupancy=0;
+    double readOc=0, writeOc=0, actOc=0, otherOc=0, occupancy=0;
+    unsigned int timeInterval = 100;
 
     deque<Request> pending;  // read requests that are about to receive data from DRAM
     bool write_mode = false;  // whether write requests should be prioritized over reads
@@ -112,6 +120,10 @@ public:
         refresh(new Refresh<T>(this)),
         cmd_trace_files(channel->children.size())
     {
+      /* Read/write occupancy csv files */
+      readfp.open("occupancy.csv");
+      //readfp << "Cycle,Read Queue Occupancy, Write Queue Occupancy, Mean of both" << std::endl;
+      /*end files*/
         record_cmd_trace = configs.record_cmd_trace();
         print_cmd_trace = configs.print_cmd_trace();
         if (record_cmd_trace){
@@ -200,6 +212,11 @@ public:
         read_latency_sum
             .name("read_latency_sum_"+to_string(channel->id))
             .desc("The memory latency cycles (in memory time domain) sum for all read requests in this channel")
+            .precision(0)
+            ;
+        randomReadsIssued
+            .name("random_reads_issued" +to_string(channel->id))
+            .desc("the number of random reads issued by the controller")
             .precision(0)
             ;
         read_latency_avg
@@ -315,7 +332,10 @@ public:
         Queue& queue = get_queue(req.type);
         if (queue.max == queue.size())
             return false;
-
+        if(req.is_random_read) {
+          randomReadsIssued++;
+          return true;
+        }
         req.arrive = clk;
         queue.q.push_back(req);
         // shortcut for read requests, if a write to same addr exists
@@ -335,7 +355,50 @@ public:
         req_queue_length_sum += readq.size() + writeq.size() + pending.size();
         read_req_queue_length_sum += readq.size() + pending.size();
         write_req_queue_length_sum += writeq.size();
+/*
+        if(readOc != 0)
+        readOc *= (readq.size() / (double)readq.max);
+        if(writeOc != 0)
+        writeOc *= (writeq.size() / (double)writeq.max);
+        otherOc *= (otherq.size() / (double)otherq.max);
+        actOc *= (actq.size() / (double)actq.max);
+*/
 
+        readOc += (readq.size() / (double)readq.max);
+        writeOc += (writeq.size() / (double)writeq.max);
+        otherOc += (otherq.size() / (double)otherq.max);
+        actOc += (actq.size() / (double)actq.max);
+
+        //printf("O: %d\nA:%d\n***\n",otherq.size(),actq.size());
+        if(clk%timeInterval==0) {
+
+          //occupancy /= 2.0;
+
+          double readOccupancy = (readq.size() / (double)readq.max);
+          double writeOccupancy = (writeq.size() / (double)writeq.max);
+          double rwOccupancy = (readOccupancy + writeOccupancy)/2.0;
+
+/*
+          double readOccupancy = pow(readOc,1.0/timeInterval);
+          double writeOccupancy = pow(writeOc,1.0/timeInterval);
+          double rwOccupancy = (readOccupancy + writeOccupancy)/2.0;
+          */
+
+/*
+          double readOccupancy = readOc/ timeInterval;
+          double writeOccupancy = writeOc/timeInterval;
+          double rwOccupancy = (readOccupancy + writeOccupancy)/2.0;
+*/
+          readfp << clk << "," << readOccupancy << "," << writeOccupancy << "," << rwOccupancy << std::endl;
+          //printf("%d cycles READ QUEUE occupancy percentage: %f\n",timeInterval,pow(readOc,1.0/100.0));
+          //printf("%d cycles WRITE QUEUE occupancy percentage: %f\n",timeInterval,pow(writeOc,1.0/100.0));
+          /*readOc=1;
+          writeOc=1;
+          otherOc=1;
+          actOc=1;*/
+          readOc = 0;
+          writeOc = 0;
+        }
         /*** 1. Serve completed reads ***/
         if (pending.size()) {
             Request& req = pending[0];
@@ -356,9 +419,9 @@ public:
         /*** 3. Should we schedule writes? ***/
         if (!write_mode) {
             // yes -- write queue is almost full or read queue is empty
-            if (writeq.size() > int(wr_high_watermark * writeq.max) 
-                    /*|| readq.size() == 0*/) // Hasan: Switching to write mode when there are just a few 
-                                              // write requests, even if the read queue is empty, incurs a lot of overhead. 
+            if (writeq.size() > int(wr_high_watermark * writeq.max)
+                    /*|| readq.size() == 0*/) // Hasan: Switching to write mode when there are just a few
+                                              // write requests, even if the read queue is empty, incurs a lot of overhead.
                                               // Commented out the read request queue empty condition
                 write_mode = true;
         }
@@ -508,7 +571,7 @@ public:
     }
 
     void set_high_writeq_watermark(const float watermark) {
-       wr_high_watermark = watermark; 
+       wr_high_watermark = watermark;
     }
 
     void set_low_writeq_watermark(const float watermark) {
@@ -548,7 +611,7 @@ private:
 			int num_row_hits = 0;
 
             for (auto itr = queue->q.begin(); itr != queue->q.end(); ++itr) {
-                if (is_row_hit(itr)) { 
+                if (is_row_hit(itr)) {
                     auto begin2 = itr->addr_vec.begin();
                     vector<int> rowgroup2(begin2, begin2 + int(T::Level::Row) + 1);
                     if(rowgroup == rowgroup2)
@@ -568,8 +631,8 @@ private:
                 }
             }
 
-            assert(num_row_hits > 0); // The current request should be a hit, 
-                                      // so there should be at least one request 
+            assert(num_row_hits > 0); // The current request should be a hit,
+                                      // so there should be at least one request
                                       // that hits in the current open row
             if(num_row_hits == 1) {
                 if(cmd == T::Command::RD)
@@ -594,7 +657,7 @@ private:
                 useless_activates++;
             }
         }
- 
+
         rowtable->update(cmd, addr_vec, clk);
         if (record_cmd_trace){
             // select rank

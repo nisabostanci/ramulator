@@ -13,7 +13,7 @@
 #include <ctype.h>
 #include <functional>
 
-namespace ramulator 
+namespace ramulator
 {
 
 class Trace {
@@ -38,7 +38,7 @@ private:
 class Window {
 public:
     int ipc = 4;
-    int depth = 128;
+    int depth = 128*2;
 
     Window() : ready_list(depth), addr_list(depth, -1) {}
     bool is_full();
@@ -95,6 +95,8 @@ public:
     long expected_limit_insts;
     // This is set true iff expected number of instructions has been executed or all instructions are executed.
     bool reached_limit = false;
+
+    ScalarStat randomNumberRequest;
 
 private:
     Trace trace;

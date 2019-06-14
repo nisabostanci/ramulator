@@ -13,6 +13,7 @@ class Request
 {
 public:
     bool is_first_command;
+    bool is_random_read;
     long addr;
     // long addr_row;
     vector<int> addr_vec;
@@ -27,6 +28,7 @@ public:
         POWERDOWN,
         SELFREFRESH,
         EXTENSION,
+        RANDOM,
         MAX
     } type;
 
@@ -35,20 +37,20 @@ public:
     function<void(Request&)> callback; // call back with more info
 
     Request(long addr, Type type, int coreid = 0)
-        : is_first_command(true), addr(addr), coreid(coreid), type(type),
+        : is_first_command(true), is_random_read(false), addr(addr), coreid(coreid), type(type),
       callback([](Request& req){}) {}
 
     Request(long addr, Type type, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr(addr), coreid(coreid), type(type), callback(callback) {}
+        : is_first_command(true), is_random_read(false), addr(addr), coreid(coreid), type(type), callback(callback) {}
 
     Request(vector<int>& addr_vec, Type type, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr_vec(addr_vec), coreid(coreid), type(type), callback(callback) {}
-
+        : is_first_command(true), is_random_read(false), addr_vec(addr_vec), coreid(coreid), type(type), callback(callback) {}
+  //  Request (vector<int>& addr_vec, Type type, function<void(Request&)> callback, int coreid = 0, bool is_random_read = false )
+  //      :  is_first_command(true), is_random_read(is_random_read), addr_vec(addr_vec), coreid(coreid), type(type), callback(callback) {}
     Request()
-        : is_first_command(true), coreid(0) {}
+        : is_first_command(true), is_random_read(false), coreid(0) {}
 };
 
 } /*namespace ramulator*/
 
 #endif /*__REQUEST_H*/
-

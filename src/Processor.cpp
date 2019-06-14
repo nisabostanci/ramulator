@@ -3,6 +3,8 @@
 
 using namespace std;
 using namespace ramulator;
+#include <iostream>
+#include <bitset>
 
 Processor::Processor(const Config& configs,
     vector<const char*> trace_list,
@@ -177,7 +179,7 @@ Core::Core(const Config& configs, int coreid,
     req_addr = memory.page_allocator(req_addr, id);
   }
 
-  
+
   // regStats
   record_cycs.name("record_cycs_core_" + to_string(id))
              .desc("Record cycle number for calculating weighted speedup. (Only valid when expected limit instruction number is non zero in config file.)")
@@ -199,6 +201,11 @@ Core::Core(const Config& configs, int coreid,
           .precision(0)
           ;
   cpu_inst = 0;
+
+  randomNumberRequest.name("random_number_" + to_string(id))
+                     .desc("number of random number requests.")
+                     .precision(0)
+                     ;
 }
 
 
@@ -247,6 +254,30 @@ void Core::tick()
 
         window.insert(false, req_addr);
         cpu_inst++;
+    }
+    else if(req_type == Request::Type::RANDOM) {
+      randomNumberRequest++;
+      /* add more  reads here
+       * Type is read
+       * is_random_read is true
+       * addresses are important
+       * 4 channels -> 16 reads each -> 64 bit random data
+       */
+       for (int i=0;i<4;i++) { //TODO_nisa: we shouldnt use fixed values
+                               // this is determined by the number of channels
+          for (int j =0;j<16;j++) {
+            long req_addr2;
+            req_addr2 = req_addr | i; //this will change the channel
+            req_addr2 = req_addr2 | ((j%4)<<10); //this will change the bank
+            Request req(req_addr2,Request::Type::READ,callback,id);
+            req.is_random_read=true;
+            if(!send(req)) return;
+            std::cout << "address in tick(): " << std::bitset<32>(req_addr2) <<std::endl;
+            window.insert(false, req_addr2);
+            cpu_inst++;
+
+          }
+        }
     }
     else {
         // write request
@@ -331,9 +362,9 @@ bool Window::is_empty()
 void Window::insert(bool ready, long addr)
 {
     assert(load <= depth);
-
     ready_list.at(head) = ready;
     addr_list.at(head) = addr;
+    std::cout << "added: " << std::bitset<32>(addr_list.at(head)) << std::endl;
 
     head = (head + 1) % depth;
     load++;
@@ -348,8 +379,10 @@ long Window::retire()
 
     int retired = 0;
     while (load > 0 && retired < ipc) {
-        if (!ready_list.at(tail))
-            break;
+        if (!ready_list.at(tail)) {
+          //std::cout << "not ready @ tail: " << addr_list.at(tail) << std::endl;
+          break;
+        }
 
         tail = (tail + 1) % depth;
         load--;
@@ -369,6 +402,8 @@ void Window::set_ready(long addr, int mask)
         if ((addr_list.at(index) & mask) != (addr & mask))
             continue;
         ready_list.at(index) = true;
+        std::cout << "ready: " << std::bitset<32>(addr_list.at(index)) <<std::endl;
+        //printf("ready: %lu\n",addr_list.at(index));
     }
 }
 
@@ -441,6 +476,11 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     bubble_cnt = std::stoul(line, &pos, 10);
 
     pos = line.find_first_not_of(' ', pos+1);
+    if(line.substr(pos)[0] == 'R') {
+      req_type = Request::Type::RANDOM;
+      req_addr = 0;
+      return true;
+    }
     req_addr = stoul(line.substr(pos), &end, 0);
     req_type = Request::Type::READ;
 
