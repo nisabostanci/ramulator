@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 #include <math.h>
+#include <iostream>
+#include <bitset>
 
 #include "Config.h"
 #include "DRAM.h"
@@ -215,7 +217,7 @@ public:
             .precision(0)
             ;
         randomReadsIssued
-            .name("random_reads_issued" +to_string(channel->id))
+            .name("random_reads_issued_" +to_string(channel->id))
             .desc("the number of random reads issued by the controller")
             .precision(0)
             ;
@@ -332,12 +334,16 @@ public:
         Queue& queue = get_queue(req.type);
         if (queue.max == queue.size())
             return false;
+        req.arrive = clk;
         if(req.is_random_read) {
           randomReadsIssued++;
-          return true;
+          queue.q.push_front(req);
+          return true; //because there shouldnt be a write to the same address
+                       //or we dont need a short cut because we are inserting
+                       //the request from the front
         }
-        req.arrive = clk;
-        queue.q.push_back(req);
+        else
+          queue.q.push_back(req);
         // shortcut for read requests, if a write to same addr exists
         // necessary for coherence
         if (req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(),
@@ -408,6 +414,7 @@ public:
                   channel->update_serving_requests(
                       req.addr_vec.data(), -1, clk);
                 }
+                //std::cout << "calling back @ address: " << std::bitset<32>(req.addr) << std::endl;
                 req.callback(req);
                 pending.pop_front();
             }
@@ -510,6 +517,7 @@ public:
         // set a future completion time for read requests
         if (req->type == Request::Type::READ) {
             req->depart = clk + channel->spec->read_latency;
+            //std::cout << "inserting to pending: " <<std::bitset<32>(req->addr) << std::endl;
             pending.push_back(*req);
         }
 

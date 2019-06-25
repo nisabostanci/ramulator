@@ -43,6 +43,7 @@ public:
     virtual void record_core(int coreid) = 0;
     virtual void set_high_writeq_watermark(const float watermark) = 0;
     virtual void set_low_writeq_watermark(const float watermark) = 0;
+    virtual void change_scheduler(bool trng) = 0;
 };
 
 template <class T, template<typename> class Controller = Controller >
@@ -104,6 +105,8 @@ public:
     bool use_mapping_file;
     bool dump_mapping;
 
+    int ctrs[8] = {0,0,0,0,0,0,0,0};
+
     int tx_bits;
 
     Memory(const Config& configs, vector<Controller<T>*> ctrls)
@@ -119,6 +122,7 @@ public:
         // validate size of one transaction
         int tx = (spec->prefetch_size * spec->channel_width / 8);
         tx_bits = calc_log2(tx);
+        std::cout << tx_bits << std::endl;
         assert((1<<tx_bits) == tx);
 
         // Parsing mapping file and initialize mapping table
@@ -126,8 +130,8 @@ public:
         dump_mapping = false;
         if (spec->standard_name.substr(0, 4) == "DDR3"){
             if (configs["mapping"] != "defaultmapping"){
+              //dump_mapping = true;
               init_mapping_with_file(configs["mapping"]);
-              // dump_mapping = true;
               use_mapping_file = true;
             }
         }
@@ -279,7 +283,12 @@ public:
         ctrl->record_core(coreid);
       }
     }
+    void change_scheduler(bool trng){
+      for (auto ctrl: ctrls) {
+          ctrl->scheduler->change_type(trng);
+      }
 
+    }
     void tick()
     {
         ++num_dram_cycles;
@@ -333,14 +342,17 @@ public:
                     assert(false);
             }
         }
-
+        if(req.is_random_read) {
+          ctrs[req.addr_vec[2]]++;
+          //std::cout << "addr: "<< std::bitset<41>(req.addr) << " req channel: " << req.addr_vec[0] << " bank: " << req.addr_vec[2] << std::endl;
+        }
         if(ctrls[req.addr_vec[0]]->enqueue(req)) {
             // tally stats here to avoid double counting for requests that aren't enqueued
             ++num_incoming_requests;
             if (req.type == Request::Type::READ) {
-              if(req.is_random_read) {
+              /*if(req.is_random_read) {
                 std::cout << "address in send(): " << std::bitset<32>(req.addr) <<std::endl;
-              }
+              }*/
               ++num_read_requests[coreid];
               ++incoming_read_reqs_per_channel[req.addr_vec[int(T::Level::Channel)]];
             }
@@ -442,22 +454,22 @@ public:
     }
 
     void dump_mapping_scheme(){
-        cout << "Mapping Scheme: " << endl;
+        std::cout << "Mapping Scheme: " << std::endl;
         for (MapScheme::iterator mapit = mapping_scheme.begin(); mapit != mapping_scheme.end(); mapit++)
         {
             int level = mapit->first;
             for (MapSchemeEntry::iterator entit = mapit->second.begin(); entit != mapit->second.end(); entit++){
-                cout << T::level_str[level] << "[" << entit->first << "] := ";
-                cout << "PhysicalAddress[" << *(entit->second.begin()) << "]";
+                std::cout << T::level_str[level] << "[" << entit->first << "] := ";
+                std::cout << "PhysicalAddress[" << *(entit->second.begin()) << "]";
                 entit->second.erase(entit->second.begin());
                 for (MapSrcVector::iterator it = entit->second.begin() ; it != entit->second.end(); it ++)
-                    cout << " xor PhysicalAddress[" << *it << "]";
-                cout << endl;
+                    std::cout << " xor PhysicalAddress[" << *it << "]";
+                std::cout << endl;
             }
         }
     }
-
     void apply_mapping(long addr, std::vector<int>& addr_vec){
+        //std::cout << std::bitset<41>(addr) << "=>";
         int *sz = spec->org_entry.count;
         int addr_total_bits = sizeof(addr_vec)*8;
         int addr_bits [int(T::Level::MAX)];
@@ -471,8 +483,7 @@ public:
         }
         // Row address is an integer.
         addr_bits[int(T::Level::Row)] = min((int)sizeof(int)*8, max(addr_total_bits, calc_log2(sz[int(T::Level::Row)])));
-
-        // printf("Address: %lx => ",addr);
+        //printf("Address: %lx => ",addr);
         for (unsigned int lvl = 0; lvl < int(T::Level::MAX); lvl++)
         {
             unsigned int lvl_bits = addr_bits[lvl];
@@ -482,13 +493,14 @@ public:
                 for (MapSrcVector::iterator it = mapping_scheme[lvl][bitindex].begin() ;
                     it != mapping_scheme[lvl][bitindex].end(); it ++)
                 {
+                    //std::cout << T::level_str[lvl].c_str() <<  ":" << *it << std::endl;
                     bitvalue = bitvalue xor get_bit_at(addr, *it);
                 }
                 addr_vec[lvl] |= (bitvalue << bitindex);
             }
-            // printf("%s: %x, ",T::level_str[lvl].c_str(),addr_vec[lvl]);
+            //printf("%s: %x, ",T::level_str[lvl].c_str(),addr_vec[lvl]);
         }
-        // printf("\n");
+        //printf("\n");
     }
 
     int pending_requests()
@@ -523,6 +535,9 @@ public:
       in_queue_req_num_avg = in_queue_req_num_sum.value() / dram_cycles;
       in_queue_read_req_num_avg = in_queue_read_req_num_sum.value() / dram_cycles;
       in_queue_write_req_num_avg = in_queue_write_req_num_sum.value() / dram_cycles;
+      for (int i =0;i<8;i++) {
+        std::cout << "ctr[" << i << "]: " << ctrs[i] << std::endl;
+      }
     }
 
     long page_allocator(long addr, int coreid) {

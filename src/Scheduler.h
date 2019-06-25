@@ -9,6 +9,7 @@
 #include <list>
 #include <functional>
 #include <cassert>
+#include <iostream>
 
 using namespace std;
 
@@ -102,6 +103,13 @@ public:
 
         return head;
       }
+    }
+    void change_type(bool trng){
+      if (trng)
+        type = Type::FCFS;
+      else
+        type = Type::FRFCFS_Cap;
+      //std::cout << "Changed scheduler type to " << int(type) << std::endl;
     }
 
 private:
