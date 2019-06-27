@@ -32,6 +32,8 @@ public:
 
     long cap = 16;
 
+    bool is_random = false;
+
     Scheduler(Controller<T>* ctrl) : ctrl(ctrl) {}
 
     list<Request>::iterator get_head(list<Request>& q)
@@ -105,8 +107,10 @@ public:
       }
     }
     void change_type(bool trng){
-      if (trng)
+      if (trng) {
         type = Type::FCFS;
+        is_random=true;
+      }
       else
         type = Type::FRFCFS_Cap;
       //std::cout << "Changed scheduler type to " << int(type) << std::endl;

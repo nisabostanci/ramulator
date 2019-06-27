@@ -248,8 +248,7 @@ void Core::tick()
         // read request
         if (inserted == window.ipc) return;
         if (window.is_full()) return;
-        //if(is_random_read)
-        //  std::cout <<"-"<< std::bitset<41>(req_addr) << std::endl;
+
         Request req(req_addr, req_type, callback, id);
         req.is_random_read = is_random_read;
         if (!send(req)) return;
@@ -449,6 +448,17 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     static bool has_write = false;
     static long write_addr;
     static int line_num = 0;
+  /*  if(stall) {
+      //check memory occ
+      if(memory.get_occupancy() == 1)  {
+        std::cout << "still stalled - occupancy: " << memory.get_occupancy() << std::endl;
+        return true;
+      }
+      else {
+        std::cout << "NOT stalled - occupancy: " << memory.get_occupancy() << std::endl;
+        stall = false;
+      }
+    }*/
     if (has_write){
         bubble_cnt = 0;
         req_addr = write_addr;
@@ -475,15 +485,28 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     }
 
     size_t pos, end;
+
+    // this is either the beginning mark or an end mark for TRNG
     if(line.substr(0)[0] == '#') {
-      //req_type = Request::Type::RANDOM;
+      if(!is_trng) {
+        /* TODO_nisa
+         * std::cout << "max occupancy: " << memory.get_occupancy() << std::endl;
+         * Stall if the controllers are busy
+        //TODO_nisa: why 0.5 idk
+        if(memory.get_occupancy() == 1)  {
+          std::cout << "stalled - occupancy: " << memory.get_occupancy() << std::endl;
+          stall = true;
+          return true;
+        }
+        else stall = false;
+        */
+      }
+
+
       is_trng = ! is_trng;
       is_random_read = is_trng;
       memory.change_scheduler(is_trng);
-      //std::cout << line << std::endl;
       return true;
-      //req_addr = 0;
-      //return true;
     }
     bubble_cnt = std::stoul(line, &pos, 10);
 

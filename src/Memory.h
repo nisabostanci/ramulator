@@ -44,6 +44,7 @@ public:
     virtual void set_high_writeq_watermark(const float watermark) = 0;
     virtual void set_low_writeq_watermark(const float watermark) = 0;
     virtual void change_scheduler(bool trng) = 0;
+    virtual double get_occupancy() = 0;
 };
 
 template <class T, template<typename> class Controller = Controller >
@@ -288,6 +289,13 @@ public:
           ctrl->scheduler->change_type(trng);
       }
 
+    }
+    double get_occupancy() { //returns maximum occupancy of the controllers
+      double max_occ=0;
+      for ( auto ctrl: ctrls) {
+        max_occ = (ctrl->get_occupancy() > max_occ) ? ctrl->get_occupancy() : max_occ;
+      }
+      return max_occ;
     }
     void tick()
     {

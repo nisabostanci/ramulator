@@ -113,6 +113,8 @@ public:
     /* Commands to stdout */
     bool print_cmd_trace = false;
 
+    bool is_in_random = false;
+
     /* Constructor */
     Controller(const Config& configs, DRAM<T>* channel) :
         channel(channel),
@@ -335,6 +337,7 @@ public:
         if (queue.max == queue.size())
             return false;
         req.arrive = clk;
+        is_in_random = false;
         if(req.is_random_read) {
           randomReadsIssued++;
           queue.q.push_front(req);
@@ -354,7 +357,9 @@ public:
         }
         return true;
     }
-
+    double get_occupancy(){
+        return (readq.size() / (double)readq.max);
+    }
     void tick()
     {
         clk++;
@@ -426,7 +431,7 @@ public:
         /*** 3. Should we schedule writes? ***/
         if (!write_mode) {
             // yes -- write queue is almost full or read queue is empty
-            if (writeq.size() > int(wr_high_watermark * writeq.max)
+            if (writeq.size() > int(wr_high_watermark * writeq.max && !scheduler->is_random)
                     /*|| readq.size() == 0*/) // Hasan: Switching to write mode when there are just a few
                                               // write requests, even if the read queue is empty, incurs a lot of overhead.
                                               // Commented out the read request queue empty condition
