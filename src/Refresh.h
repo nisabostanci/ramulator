@@ -76,6 +76,7 @@ public:
 
     // Time to schedule a refresh
     if ((clk - refreshed) >= refresh_interval) {
+      std::cout << "issued refresh" << std::endl;
       inject_refresh(true);
       // ALDRAM: update timing parameters based on temperatures
       ALDRAM::Temp current_temperature = ALDRAM::Temp::COLD;
@@ -112,8 +113,11 @@ private:
   void inject_refresh(bool b_ref_rank) {
     // Rank-level refresh
     if (b_ref_rank) {
-      for (auto rank : ctrl->channel->children)
+      for (auto rank : ctrl->channel->children) {
         refresh_target(ctrl, rank->id, -1, -1);
+        std::cout << "refresh : " << rank->id << std::endl; 
+
+      }
     }
     // Bank-level refresh. Simultaneously issue to all ranks (better performance than staggered refreshes).
     else {

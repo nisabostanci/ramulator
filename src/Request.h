@@ -19,6 +19,7 @@ public:
     vector<int> addr_vec;
     // specify which core this request sent from, for virtual address translation
     int coreid;
+    bool is_start; //only valid if the request is random
 
     enum class Type
     {

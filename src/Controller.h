@@ -334,8 +334,11 @@ public:
     bool enqueue(Request& req)
     {
         Queue& queue = get_queue(req.type);
-        if (queue.max == queue.size())
-            return false;
+        if (queue.max == queue.size()) {
+          if(req.type==Request::Type::REFRESH)
+            std::cout << "refresh is fucked" << std::endl;
+          return false;
+        }
         req.arrive = clk;
         is_in_random = false;
         if(req.is_random_read) {
@@ -524,12 +527,17 @@ public:
             req->depart = clk + channel->spec->read_latency;
             //std::cout << "inserting to pending: " <<std::bitset<32>(req->addr) << std::endl;
             pending.push_back(*req);
+            if(req->is_random_read) {
+              std::cout << "random read is being erased" << std::endl;
+            }
         }
 
         if (req->type == Request::Type::WRITE) {
             channel->update_serving_requests(req->addr_vec.data(), -1, clk);
         }
-
+        if(req->type == Request::Type::REFRESH) {
+          std::cout << "Refresh req is being erased." << std::endl;
+        }
         // remove request from queue
         queue->q.erase(req);
     }
