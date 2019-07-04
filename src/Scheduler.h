@@ -42,10 +42,22 @@ public:
       if (type != Type::FRFCFS_PriorHit) {
         if (!q.size())
             return q.end();
-
+        long first_randomst = -1;
+        long first_randomend = -1;
         auto head = q.begin();
-        for (auto itr = next(q.begin(), 1); itr != q.end(); itr++)
-            head = compare[int(type)](head, itr);
+        if(head->type == Request::Type::RANDOM_ST) return head;
+        if(head->type == Request::Type::RANDOM_END) return head;
+        for (auto itr = next(q.begin(), 1); itr != q.end(); itr++){
+          if(itr->type==Request::Type::RANDOM_ST && first_randomst == -1)
+            first_randomst = itr->arrive;
+          if(itr->type==Request::Type::RANDOM_END && first_randomend == -1)
+            first_randomend = itr->arrive;
+          if(itr->arrive >= first_randomst) continue;
+          if(itr->arrive >= first_randomend) continue;
+          if(is_random && !itr->is_random_read) continue;
+          head = compare[int(type)](head, itr);
+
+        }
 
         return head;
       } else {
@@ -108,12 +120,15 @@ public:
     }
     void change_type(bool trng){
       if (trng) {
-        type = Type::FCFS;
         is_random=true;
+        std::cout << "Changed scheduler type to FCFS. old: "<< int(type) << std::endl;
+        type = Type::FCFS;
       }
-      else
+      else{
+        is_random=false;
+        std::cout << "Changed scheduler type to FRFCFS_Cap. old: "<< int(type) << std::endl;
         type = Type::FRFCFS_Cap;
-      //std::cout << "Changed scheduler type to " << int(type) << std::endl;
+      }
     }
 
 private:

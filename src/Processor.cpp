@@ -244,10 +244,10 @@ void Core::tick()
         }
     }
 
-    if(trace.is_stalled()) { //this should be executed and we shouldnt be inserting any read or write request
-      std::cout << "stalling." << std::endl;
-    }
-    else if (req_type == Request::Type::READ) {
+    /*if(trace.is_stalled()) { //this should be executed and we shouldnt be inserting any read or write request
+      //std::cout << "stalling." << std::endl;
+    }*/
+    if (req_type == Request::Type::READ) {
         // read request
         if (inserted == window.ipc) return;
         if (window.is_full()) return;
@@ -258,7 +258,12 @@ void Core::tick()
 
         window.insert(false, req_addr);
         cpu_inst++;
-    }/*
+    }
+    else if(req_type == Request::Type::RANDOM_ST || req_type == Request::Type::RANDOM_END) {
+        Request req(req_addr, req_type, callback, id);
+        if(!send(req)) return;
+    }
+    /*
     else if(req_type == Request::Type::RANDOM) {
       randomNumberRequest++;
       /* add more  reads here
@@ -451,6 +456,7 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     static bool has_write = false;
     static long write_addr;
     static int line_num = 0;
+    /*
     if(stall) {
       //check memory occ
       if(memory.get_occupancy() == 1)  {
@@ -463,7 +469,7 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         std::cout << "NOT stalled - occupancy: " << memory.get_occupancy() << std::endl;
         stall = false;
       }
-    }
+    }*/
     if (has_write){
         bubble_cnt = 0;
         req_addr = write_addr;
@@ -493,11 +499,12 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
 
     // this is either the beginning mark or an end mark for TRNG
     if(line.substr(0)[0] == '#') {
+/*
       if(!is_trng) {
         /* TODO_nisa
          * std::cout << "max occupancy: " << memory.get_occupancy() << std::endl;
          * Stall if the controllers are busy
-         */
+
         //TODO_nisa: why 0.5 idk
         if(memory.get_occupancy() == 1)  {
           std::cout << "stalled - occupancy: " << memory.get_occupancy() << std::endl;
@@ -509,14 +516,22 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         }
         else stall = false;
       }
-      if(!is_trng)
+      */
+    /*  if(!is_trng)
         std::cout << "trng start" << std::endl;
       else
         std::cout << "trng end" << std::endl;
-
+      if(!is_trng)
+        memory.change_scheduler(true);
+        */
+      if(!is_trng)
+        req_type= Request::Type::RANDOM_ST;
+      else
+        req_type=Request::Type::RANDOM_END;
+      req_addr = -1;
+      bubble_cnt = 0;
       is_trng = ! is_trng;
       is_random_read = is_trng;
-      memory.change_scheduler(is_trng);
       return true;
     }
     bubble_cnt = std::stoul(line, &pos, 10);

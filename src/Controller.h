@@ -327,6 +327,8 @@ public:
         switch (int(type)) {
             case int(Request::Type::READ): return readq;
             case int(Request::Type::WRITE): return writeq;
+            case int(Request::Type::RANDOM_ST): return readq;
+            case int(Request::Type::RANDOM_END): return readq;
             default: return otherq;
         }
     }
@@ -335,15 +337,12 @@ public:
     {
         Queue& queue = get_queue(req.type);
         if (queue.max == queue.size()) {
-          if(req.type==Request::Type::REFRESH)
-            std::cout << "refresh is fucked" << std::endl;
           return false;
         }
         req.arrive = clk;
-        is_in_random = false;
         if(req.is_random_read) {
           randomReadsIssued++;
-          queue.q.push_front(req);
+          queue.q.push_back(req);
           return true; //because there shouldnt be a write to the same address
                        //or we dont need a short cut because we are inserting
                        //the request from the front
@@ -471,7 +470,20 @@ public:
             }
             return;  // nothing more to be done this cycle
         }
-
+        if(req->type == Request::Type::RANDOM_ST) {
+          is_in_random = true;
+          std::cout << channel->id << " : ";
+          scheduler->change_type(true);
+          queue->q.erase(req);
+          return;
+        }
+        if(req->type == Request::Type::RANDOM_END) {
+          is_in_random = false;
+          std::cout << channel->id << " : ";
+          scheduler->change_type(false);
+          queue->q.erase(req);
+          return;
+        }
         if (req->is_first_command) {
             req->is_first_command = false;
             int coreid = req->coreid;
@@ -527,16 +539,18 @@ public:
             req->depart = clk + channel->spec->read_latency;
             //std::cout << "inserting to pending: " <<std::bitset<32>(req->addr) << std::endl;
             pending.push_back(*req);
-            if(req->is_random_read) {
-              std::cout << "random read is being erased" << std::endl;
-            }
         }
-
+        if(req->is_random_read && !is_in_random) {
+          std::cout << channel->id << ": random read is being erased when not in random" << std::endl;
+        }
+        if(!req->is_random_read && is_in_random && req->type!=Request::Type::REFRESH) {
+            std::cout << channel->id << ": sth else is being erased in random (not refresh)" << std::endl;
+            /*std::cout << channel->id << ": ";
+            scheduler->change_type(false);
+            is_in_random = false;*/
+        }
         if (req->type == Request::Type::WRITE) {
             channel->update_serving_requests(req->addr_vec.data(), -1, clk);
-        }
-        if(req->type == Request::Type::REFRESH) {
-          std::cout << "Refresh req is being erased." << std::endl;
         }
         // remove request from queue
         queue->q.erase(req);

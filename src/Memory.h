@@ -350,6 +350,12 @@ public:
                     assert(false);
             }
         }
+        if(req.type==Request::Type::RANDOM_ST || req.type==Request::Type::RANDOM_END) {
+          for (auto ctrl: ctrls) {
+            ctrl->enqueue(req);
+          }
+          return true;
+        }
         if(req.is_random_read) {
           ctrs[req.addr_vec[2]]++;
           //std::cout << "addr: "<< std::bitset<41>(req.addr) << " req channel: " << req.addr_vec[0] << " bank: " << req.addr_vec[2] << std::endl;

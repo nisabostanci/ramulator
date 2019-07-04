@@ -29,7 +29,8 @@ public:
         POWERDOWN,
         SELFREFRESH,
         EXTENSION,
-        RANDOM,
+        RANDOM_ST,
+        RANDOM_END,
         MAX
     } type;
 
