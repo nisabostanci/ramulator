@@ -421,7 +421,6 @@ public:
                   channel->update_serving_requests(
                       req.addr_vec.data(), -1, clk);
                 }
-                //std::cout << "calling back @ address: " << std::bitset<32>(req.addr) << std::endl;
                 req.callback(req);
                 pending.pop_front();
             }
@@ -484,6 +483,10 @@ public:
           queue->q.erase(req);
           return;
         }
+        if(is_in_random && !req->is_random_read && req->type==Request::Type::READ) {
+          std::cout  << "trying to issue a non random request while in random!" << std::endl;
+          //return;
+        }
         if (req->is_first_command) {
             req->is_first_command = false;
             int coreid = req->coreid;
@@ -537,20 +540,13 @@ public:
         // set a future completion time for read requests
         if (req->type == Request::Type::READ) {
             req->depart = clk + channel->spec->read_latency;
-            //std::cout << "inserting to pending: " <<std::bitset<32>(req->addr) << std::endl;
             pending.push_back(*req);
         }
         if(req->is_random_read && !is_in_random) {
           std::cout << channel->id << ": random read is being erased when not in random" << std::endl;
         }
-        if(!req->is_random_read && is_in_random && req->type!=Request::Type::REFRESH) {
-            std::cout << channel->id << ": sth else is being erased in random (not refresh)" << std::endl;
-            /*std::cout << channel->id << ": ";
-            scheduler->change_type(false);
-            is_in_random = false;*/
-        }
         if (req->type == Request::Type::WRITE) {
-            channel->update_serving_requests(req->addr_vec.data(), -1, clk);
+          channel->update_serving_requests(req->addr_vec.data(), -1, clk);
         }
         // remove request from queue
         queue->q.erase(req);

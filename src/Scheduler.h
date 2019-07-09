@@ -33,6 +33,7 @@ public:
     long cap = 16;
 
     bool is_random = false;
+    int random_coreid = -1;
 
     Scheduler(Controller<T>* ctrl) : ctrl(ctrl) {}
 
@@ -40,24 +41,54 @@ public:
     {
       // TODO make the decision at compile time
       if (type != Type::FRFCFS_PriorHit) {
+        std::cout <<"***********************" << q.size() << std::endl;
         if (!q.size())
             return q.end();
         long first_randomst = -1;
-        long first_randomend = -1;
         auto head = q.begin();
-        if(head->type == Request::Type::RANDOM_ST) return head;
-        if(head->type == Request::Type::RANDOM_END) return head;
+        std::cout << "ctrl:\t"<< ctrl->channel->id << "\tcore:" << head->coreid
+                  << "\t req type:"<<(int)head->type <<"\t is random read:"
+                  << head->is_random_read << "\tarrive:" << head->arrive
+                  << "\tis random::::"  << is_random << std::endl;
         for (auto itr = next(q.begin(), 1); itr != q.end(); itr++){
-          if(itr->type==Request::Type::RANDOM_ST && first_randomst == -1)
+          //DEBUG
+
+          std::cout << "ctrl:\t" << ctrl->channel->id << "\tcore:" << itr->coreid << "\t req type:"
+                    <<(int)itr->type <<"\t is random read:" << itr->is_random_read
+                    << "\tarrive:" << itr->arrive << "\tis random::::"
+                    << is_random << std::endl;
+          if(itr->type==Request::Type::RANDOM_ST && first_randomst == -1){
             first_randomst = itr->arrive;
-          if(itr->type==Request::Type::RANDOM_END && first_randomend == -1)
-            first_randomend = itr->arrive;
-          if(itr->arrive >= first_randomst) continue;
-          if(itr->arrive >= first_randomend) continue;
-          if(is_random && !itr->is_random_read) continue;
+            continue;
+          }
+          if (head->type == Request::Type::RANDOM_ST && itr->arrive <= head->arrive)
+          {
+            first_randomst = head->arrive;
+            head = itr;
+            continue;
+          }
+          if(itr->arrive >= first_randomst && first_randomst != -1) continue;
+          if(is_random && !itr->is_random_read && itr->type != Request::Type::RANDOM_END) continue;
+          if(is_random && itr->coreid != random_coreid) continue;
+          std::cout << "comparing" << std::endl;
           head = compare[int(type)](head, itr);
 
         }
+        if(is_random && !head->is_random_read && head->type!=Request::Type::RANDOM_ST && head->type!=Request::Type::RANDOM_END) {
+          std::cout << "[SCHEDULER] sending q.end() because in random and the req is not random" << std::endl;
+          return q.end();
+        }
+        if(head->type == Request::Type::RANDOM_ST) {
+          random_coreid = head->coreid;
+          is_random = true;
+        }
+        if(head->type == Request::Type::RANDOM_END) {
+          is_random = false;
+        }
+        std::cout << "selected: ctrl:\t"<< ctrl->channel->id << "\tcore:" << head->coreid
+                  << "\t req type:"<<(int)head->type <<"\t is random read:"
+                  << head->is_random_read << "\tarrive:" << head->arrive
+                  << "\tis random::::"  << is_random << std::endl;
 
         return head;
       } else {
@@ -120,12 +151,12 @@ public:
     }
     void change_type(bool trng){
       if (trng) {
-        is_random=true;
+        //is_random=true;
         std::cout << "Changed scheduler type to FCFS. old: "<< int(type) << std::endl;
         type = Type::FCFS;
       }
       else{
-        is_random=false;
+        //is_random=false;
         std::cout << "Changed scheduler type to FRFCFS_Cap. old: "<< int(type) << std::endl;
         type = Type::FRFCFS_Cap;
       }
@@ -136,6 +167,11 @@ private:
     function<ReqIter(ReqIter, ReqIter)> compare[int(Type::MAX)] = {
         // FCFS
         [this] (ReqIter req1, ReqIter req2) {
+          //if the head is not random read it can end up compared to sth random
+          if(req1->type == Request::Type::RANDOM_END && !req2->is_random_read) return req1;
+          if(req2->type == Request::Type::RANDOM_END && !req1->is_random_read) return req2;
+          if(!req1->is_random_read && req2->is_random_read) return req2;
+          if(!req2->is_random_read && req1->is_random_read) return req1;
             if (req1->arrive <= req2->arrive) return req1;
             return req2;},
 

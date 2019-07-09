@@ -356,11 +356,11 @@ public:
           }
           return true;
         }
-        if(req.is_random_read) {
-          ctrs[req.addr_vec[2]]++;
-          //std::cout << "addr: "<< std::bitset<41>(req.addr) << " req channel: " << req.addr_vec[0] << " bank: " << req.addr_vec[2] << std::endl;
-        }
         if(ctrls[req.addr_vec[0]]->enqueue(req)) {
+          if(req.is_random_read) {
+            ctrs[req.addr_vec[2]]++;
+            std::cout << "addr: "<< std::bitset<41>(req.addr) << " req channel: " << req.addr_vec[0] << " bank: " << req.addr_vec[2] << std::endl;
+          }
             // tally stats here to avoid double counting for requests that aren't enqueued
             ++num_incoming_requests;
             if (req.type == Request::Type::READ) {
